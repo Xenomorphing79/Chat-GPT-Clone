@@ -1,7 +1,9 @@
+// import 'package:chat_gpt_sdk/chat_gpt_sdk.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_chatgpt/chat_screen..dart';
+import 'package:flutter_chatgpt/chat_screen.dart';
+// import 'package:dart_openai/openai.dart';
 
-void main() {
+Future<void> main() async {
   runApp(const MyApp());
 }
 
