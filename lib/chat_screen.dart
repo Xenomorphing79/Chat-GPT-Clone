@@ -4,6 +4,7 @@ import 'dart:convert';
 // import 'package:dart_openai/openai.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_chatgpt/ChatMessage.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:velocity_x/velocity_x.dart';
 // import 'package:chat_gpt_sdk/chat_gpt_sdk.dart';
 import 'package:chat_gpt_sdk/chat_gpt_sdk.dart';
@@ -23,25 +24,32 @@ class _ChatScreenState extends State<ChatScreen> {
   OpenAI? chatGPT;
   StreamSubscription? _subscription;
 
+  bool _isImageSearch = false;
   bool _isTyping = false;
 
   @override
   void initState() {
-    chatGPT = OpenAI.instance;
+    chatGPT = OpenAI.instance.build(
+      token: dotenv.env["API_KEY"],
+      baseOption: HttpSetup(receiveTimeout: 60000),
+    );
     super.initState();
   }
 
   @override
   void dispose() {
+    chatGPT!.genImgClose();
     _subscription?.cancel();
     super.dispose();
   }
 
-  Future<void> _sendMessage() async {
+  void _sendMessage() {
+    if (_controller.text.isEmpty) return;
     final String text = _controller.text;
     final ChatMessage message = ChatMessage(
       text: text,
       sender: "You",
+      isImageSearch: false,
     );
     setState(() {
       _messages.insert(0, message);
@@ -49,25 +57,42 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _controller.clear();
 
-    final request = CompleteText(
-      prompt: message.text,
-      model: kTranslateModelV3,
-      n: 1,
-      maxTokens: 200,
+    if (_isImageSearch) {
+      final request = GenerateImage(message.text, 1);
+      _subscription = chatGPT!
+          .generateImageStream(request)
+          .asBroadcastStream()
+          .listen((response) {
+        Vx.log(response.data!.last!.url!);
+        insertNewData(response.data!.last!.url!, isImageSearch: true);
+      });
+    } else {
+      final request = CompleteText(
+        prompt: message.text,
+        model: kTranslateModelV3,
+        n: 1,
+        maxTokens: 200,
+      );
+
+      _subscription = chatGPT!
+          .onCompleteStream(request: request)
+          .asBroadcastStream()
+          .listen((response) {
+        insertNewData(response!.choices[0].text, isImageSearch: false);
+      });
+    }
+  }
+
+  void insertNewData(String response, {bool isImageSearch = false}) {
+    ChatMessage botMessage = ChatMessage(
+      text: response,
+      sender: "bot",
+      isImageSearch: isImageSearch,
     );
 
-    _subscription = chatGPT!
-        .build(
-          token: "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",
-        )
-        .onCompleteStream(request: request)
-        .listen((response) {
-      ChatMessage botMessage =
-          ChatMessage(text: response!.choices[0].text, sender: "Bot");
-      setState(() {
-        _isTyping = false;
-        _messages.insert(0, botMessage);
-      });
+    setState(() {
+      _isTyping = false;
+      _messages.insert(0, botMessage);
     });
   }
 
@@ -78,11 +103,25 @@ class _ChatScreenState extends State<ChatScreen> {
           child: TextField(
               controller: _controller,
               onSubmitted: (value) => _sendMessage(),
-              decoration:
-                  const InputDecoration.collapsed(hintText: "Send a message")),
+              decoration: const InputDecoration.collapsed(
+                  hintText: "Enter something...")),
         ),
-        IconButton(
-            onPressed: () => _sendMessage(), icon: const Icon(Icons.send))
+        ButtonBar(
+          children: [
+            IconButton(
+                onPressed: () {
+                  _isImageSearch = false;
+                  _sendMessage();
+                },
+                icon: const Icon(Icons.send)),
+            TextButton(
+                onPressed: () {
+                  _isImageSearch = true;
+                  _sendMessage();
+                },
+                child: const Text("Generate Image")),
+          ],
+        )
       ],
     ).px12();
   }
